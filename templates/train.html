@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Training</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.0.0/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script src="https://unpkg.com/vis-network@8.1.0/dist/vis-network.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f2f5;
+        }
+        .container {
+            margin-top: 20px;
+        }
+        h1 {
+            color: #34495e;
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
+        h3 {
+            color: #34495e;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        canvas {
+            margin-bottom: 20px;
+        }
+        #graph {
+            margin-bottom: 20px;
+        }
+        a {
+            color: #3498db;
+        }
+        a:hover {
+            color: #2980b9;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Training on {{ dataset }} Dataset</h1>
+    <div id="stats">
+        <h3>Stats</h3>
+        <p>Based on {{ algorithm }} algorithm</p>
+    </div>
+    <div>
+        <canvas id="chart"></canvas>
+    </div>
+    <h3>Node-Edge-Graph</h3>
+    <div id="graph" style="width: 800px; height: 600px; border: 2px solid rgb(43, 59, 236); background-color: #a0f2ee;"></div>
+    <p>Training progress:</p>
+    <progress id="progress" value="0" max="100"></progress><span id="progress-percent">0%</span>
+    <p>Remaining Time: <span id="remaining-time">-</span></p>
+    <div>
+        <canvas id="acc-line-chart"></canvas>
+    </div>
+    <div>
+        <canvas id="auc-line-chart"></canvas>
+    </div>
+    <p>Train Accuracy: <span id="train-acc">{{ train_acc }}</span></p>
+    <p>Test Accuracy: <span id="test-acc">{{ test_acc }}</span></p>
+    <p>Train AUC: <span id="train-auc">{{ train_auc }}</span></p>
+    <p>Test AUC: <span id="test-auc">{{ test_auc }}</span></p>
+    <p><a href="{{ url_for('index') }}">Back to Index</a></p>
+    <p><a href="{{ url_for('logout') }}">Logout</a></p>
+
+    <script>
+        $.post("{{ url_for('get_stats_view') }}", {dataset: "{{ dataset }}"}, function(data) {
+            let ctx = document.getElementById('chart').getContext('2d');
+            let myChart = new Chart(ctx, {
+                type: 'bar',
+                plugins: [ChartDataLabels],
+                data: {
+                    labels: [
+                        'Number of graphs', 
+                        'Number of classes', 
+                        'Average number of nodes',
+                        'Number of train graphs',
+                        'Number of test graphs'
+                    ],
+                    datasets: [{
+                        data: [
+                            data.num_graphs, 
+                            data.num_classes, 
+                            data.avg_num_nodes,
+                            data.num_train_graphs,
+                            data.num_test_graphs
+                        ],
+                        backgroundColor: [
+                            'rgba(75, 192, 192, 0.2)',
+                            'rgba(255, 206, 86, 0.2)',
+                            'rgba(153, 102, 255, 0.2)',
+                            'rgba(255, 99, 132, 0.2)',
+                            'rgba(54, 162, 235, 0.2)'
+                        ],
+                        borderColor: [
+                            'rgba(75, 192, 192, 1)',
+                            'rgba(255, 206, 86, 1)',
+                            'rgba(153, 102, 255, 1)',
+                            'rgba(255, 99, 132, 1)',
+                            'rgba(54, 162, 235, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        datalabels: {
+                            color: '#000',
+                            font: {
+                                weight: 'bold'
+                            },
+                            formatter: function(value, context) {
+                                return context.chart.data.labels[context.dataIndex] + ': ' + value.toFixed(2);
+                            },
+                            anchor: 'end',
+                            align: 'top',
+                            display: true
+                        },
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+
+            const container = document.getElementById('graph');
+            const graphData = {
+                nodes: new vis.DataSet(data.nodes),
+                edges: new vis.DataSet(data.edges)
+            };
+            const options = {};
+            const network = new vis.Network(container, graphData, options);
+        });
+
+
+
+        // Connect to socket.io
+        const socket = io.connect('http://' + document.domain + ':' + location.port);
+
+        // Initialize the chart
+        const ctx_acc_line = document.getElementById('acc-line-chart').getContext('2d');
+        const acc_lineChart = new Chart(ctx_acc_line, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Train Accuracy',
+                    data: [],
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1
+                }, {
+                    label: 'Test Accuracy',
+                    data: [],
+                    backgroundColor: 'rgba(255, 206, 86, 0.2)',
+                    borderColor: 'rgba(255, 206, 86, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                },
+                elements: {
+                    point: {
+                        radius: 5,
+                        hitRadius: 10,
+                        hoverRadius: 2
+                    }
+                }
+            }
+        });
+
+        // Initialize the chart
+        const ctx_auc_line = document.getElementById('auc-line-chart').getContext('2d');
+        const auc_lineChart = new Chart(ctx_auc_line, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Train AUC',
+                    data: [],
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1
+                }, {
+                    label: 'Test AUC',
+                    data: [],
+                    backgroundColor: 'rgba(255, 206, 86, 0.2)',
+                    borderColor: 'rgba(255, 206, 86, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                },
+                elements: {
+                    point: {
+                        radius: 5,
+                        hitRadius: 10,
+                        hoverRadius: 2
+                    }
+                }
+            }
+        });
+
+        let startTime = Date.now(); // Add this line to record the start time
+        let epochTimes = []; // Add this line to store each epoch's duration
+
+        // Listen for training_progress events
+        socket.on('training_progress', function(data) {
+            $("#progress").attr("value", data.progress);
+            // Update the percentage text
+            $("#progress-percent").text(data.progress + "%");
+            $("#train-acc").text(data.train_acc.toFixed(2));
+            $("#test-acc").text(data.test_acc.toFixed(2));
+            // Update the line chart
+            acc_lineChart.data.labels.push(data.epoch);
+            acc_lineChart.data.datasets[0].data.push(data.train_acc);
+            acc_lineChart.data.datasets[1].data.push(data.test_acc);
+            acc_lineChart.update();
+
+            $("#train-auc").text(data.train_auc.toFixed(2));
+            $("#test-auc").text(data.test_auc.toFixed(2));
+            // Update the line chart
+            auc_lineChart.data.labels.push(data.epoch);
+            auc_lineChart.data.datasets[0].data.push(data.train_auc);
+            auc_lineChart.data.datasets[1].data.push(data.test_auc);
+            auc_lineChart.update();
+
+            let currentTime = Date.now();
+            let elapsedTime = currentTime - startTime;
+            startTime = currentTime;
+            epochTimes.push(elapsedTime);
+
+            // Calculate the average time per epoch
+            let avgTimePerEpoch = epochTimes.reduce((a, b) => a + b, 0) / epochTimes.length;
+
+            // Estimate the remaining time
+            let remainingEpochs = data.total_epochs - data.epoch - 1;
+            let remainingTime = remainingEpochs * avgTimePerEpoch;
+
+            // Convert remaining time to minutes and seconds
+            let remainingMinutes = Math.floor(remainingTime / 60000);
+            let remainingSeconds = Math.floor((remainingTime % 60000) / 1000);
+
+            // Display the remaining time
+            $("#remaining-time").text(remainingMinutes + "m " + remainingSeconds + "s");
+        });
+    </script>
+</body>
+</html>
